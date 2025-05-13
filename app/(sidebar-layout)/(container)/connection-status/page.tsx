@@ -3,22 +3,21 @@
 import { useEffect, useState } from "react";
 import useSWR from "swr";
 
-import { useConnection } from "@/hooks/useConnection";
-import { useConnectionMulti } from "@/hooks/useConnectionMulti";
-import { useProfiles } from "@/hooks/use-profiles";
 import { getMcpServers } from "@/app/actions/mcp-servers"; // Import server action
-import { McpServer } from "@/types/mcp-server";
-import { ConnectionStatus } from "@/lib/constants";
-
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
+import { useProfiles } from "@/hooks/use-profiles";
+import { useConnection } from "@/hooks/useConnection";
+import { useConnectionMulti } from "@/hooks/useConnectionMulti";
+import { ConnectionStatus } from "@/lib/constants";
+import { McpServer } from "@/types/mcp-server";
 
 export default function ConnectionStatusPage() {
   const { currentProfile } = useProfiles();
@@ -26,35 +25,29 @@ export default function ConnectionStatusPage() {
 
   const [selectedServerUuid, setSelectedServerUuid] = useState<string | undefined>(undefined);
 
-  // Fetch MCP Servers for the current profile
   const { data: availableServers, isLoading: isLoadingServers } = useSWR<McpServer[]>(
     currentProfileUuid ? `${currentProfileUuid}/mcp-servers` : null,
     () => (currentProfileUuid ? getMcpServers(currentProfileUuid) : Promise.resolve([]))
   );
 
+  // Call useConnection unconditionally
+  const singleConnectionHookData = useConnection({
+    // Pass an empty string if no server/profile is selected; the hook should handle this gracefully
+    // (e.g., by not attempting to connect or returning a default 'disconnected' state)
+    mcpServerUuid: selectedServerUuid || "",
+    currentProfileUuid: currentProfileUuid || "",
+  });
+
   useEffect(() => {
-    // Reset selected server if profile changes or if the selected server is no longer in the list
     if (availableServers && selectedServerUuid && !availableServers.find(s => s.uuid === selectedServerUuid)) {
       setSelectedServerUuid(undefined);
     }
-    // Optionally, select the first server by default if none is selected
-    // if (availableServers && availableServers.length > 0 && !selectedServerUuid) {
-    //   setSelectedServerUuid(availableServers[0].uuid);
-    // }
   }, [availableServers, selectedServerUuid, currentProfileUuid]);
-
 
   let singleConnectionStatus: ConnectionStatus = 'disconnected';
 
-  const singleConnectionHookData =
-    selectedServerUuid && currentProfileUuid
-      ? useConnection({
-          mcpServerUuid: selectedServerUuid,
-          currentProfileUuid: currentProfileUuid,
-        })
-      : null;
-
-  if (singleConnectionHookData) {
+  // Only use the hook's data if a server and profile are actually selected
+  if (selectedServerUuid && currentProfileUuid && singleConnectionHookData) {
     singleConnectionStatus = singleConnectionHookData.connectionStatus;
   }
 
@@ -63,9 +56,9 @@ export default function ConnectionStatusPage() {
   const displayMcpServerUuid = selectedServerUuid;
   const selectedServerName = availableServers?.find(s => s.uuid === selectedServerUuid)?.name || displayMcpServerUuid;
 
+  const isSingleConnectionRelevant = displayMcpServerUuid && currentProfileUuid;
+  // const isSingleConnectionHookActive = isSingleConnectionRelevant && singleConnectionHookData && singleConnectionStatus !== 'disconnected'; // Removed as it's unused
 
-  const isSingleConnectionHookActive = displayMcpServerUuid && currentProfileUuid && singleConnectionHookData;
-  // ...existing code...
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Connection Status</h1>
@@ -75,7 +68,7 @@ export default function ConnectionStatusPage() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" disabled={isLoadingServers || !currentProfileUuid}>
-              {selectedServerUuid && availableServers
+              {selectedServerUuid && availableServers && availableServers.find(s => s.uuid === selectedServerUuid)
                 ? availableServers.find(s => s.uuid === selectedServerUuid)?.name || "Select Server"
                 : "Select Server"}
             </Button>
@@ -97,13 +90,13 @@ export default function ConnectionStatusPage() {
       </div>
 
       {/* Abschnitt für den Einzelverbindungsstatus */}
-      {displayMcpServerUuid && currentProfileUuid ? (
+      {isSingleConnectionRelevant ? (
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle>Single Connection Status: {selectedServerName}</CardTitle>
+            <CardTitle>Single Connection Status: {selectedServerName || 'N/A'}</CardTitle>
           </CardHeader>
           <CardContent>
-            {isSingleConnectionHookActive ? (
+            {singleConnectionHookData && singleConnectionStatus ? (
               <p>
                 Server UUID: {displayMcpServerUuid} (Profile: {currentProfileUuid}) - Status:{" "}
                 <Badge
@@ -120,7 +113,7 @@ export default function ConnectionStatusPage() {
               </p>
             ) : (
               <p>
-                Connecting to server {selectedServerName} ({displayMcpServerUuid}) with profile {currentProfileUuid}...
+                Connecting to server {selectedServerName || displayMcpServerUuid} with profile {currentProfileUuid}...
                 If this message persists, the server may be unavailable or the profile invalid.
               </p>
             )}
@@ -140,7 +133,7 @@ export default function ConnectionStatusPage() {
       )}
 
       {/* Abschnitt für den Multi-Verbindungsstatus */}
-      {Object.keys(multiConnectionStatuses).length > 0 || !isSingleConnectionHookActive ? (
+      {Object.keys(multiConnectionStatuses).length > 0 || !isSingleConnectionRelevant ? (
          <Card>
           <CardHeader>
             <CardTitle>Multi-Connection Status</CardTitle>
@@ -179,8 +172,8 @@ export default function ConnectionStatusPage() {
       ) : null}
 
       {/* Fallback-Nachricht, wenn gar keine Verbindungsdaten vorhanden sind */}
-      {!isSingleConnectionHookActive && Object.keys(multiConnectionStatuses).length === 0 && (
-        <p>No connection information available. Please select a server or ensure a profile is active.</p>
+      {!isSingleConnectionRelevant && Object.keys(multiConnectionStatuses).length === 0 && (
+        <p>No connection information available. Please select a server and ensure a profile is active.</p>
       )}
     </div>
   );
